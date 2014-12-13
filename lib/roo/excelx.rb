@@ -375,13 +375,8 @@ class Roo::Excelx < Roo::Base
   # options[:sheet] can be used to specify a
   # sheet other than the default
   # options[:max_rows] break when parsed max rows + 1 for header
-  # options[:pad_cells] can be used to track empty cells, defaults to true
-  # nil is inserted for each empty cell.
-  # Does not pad past the last present cell
   def each_row_streaming(options = {})
     raise StandardError, "Documents already loaded, streaming futile" if @sheet_doc
-
-    options[:pad_cells] = true if options[:pad_cells].nil?
 
     sheet = options[:sheet] || @default_sheet
     sheet_idx = sheets.index(sheet)
@@ -407,9 +402,6 @@ class Roo::Excelx < Roo::Base
   #
   # options[:sheet] can be used to specify a
   # sheet other than the default
-  # options[:pad_cells] can be used to track empty cells
-  # nil is inserted for each empty cell.
-  # Does not pad past the last present cell
   def each_row(options = {})
     sheet = options[:sheet] || @default_sheet
     raise StandardError, "Sheets not loaded! Do not use this interface with :minimal_load" if @sheet_files && !@sheet_doc
@@ -514,6 +506,7 @@ class Roo::Excelx < Roo::Base
       set_cell_values(cell.sheet, cell.coordinate.x, cell.coordinate.y, 0, cell.value, cell.type,
                       cell.formula, cell.excelx_type, cell.excelx_value, cell.s_attribute) unless cell == 0
     end
+
     @cells_read[sheet] = true
     # begin comments
 =begin
@@ -563,19 +556,19 @@ Datei xl/comments1.xml
   def cells_for_row_element(row_element, options = {})
     return [] unless row_element
     cell_col = 0
-    row_element.children.each_with_object(cells = []) do |cell_element|
+    row = []
+    row_element.children.each do |cell_element|
       cell = parse_cell(cell_element, options)
-      cells.concat(pad_cells(cell, cell_col)) if options[:pad_cells]
-      cells << cell
+      pad_cells(row cell, cell_col)
+      row << cell
       cell_col = cell.coordinate.x
     end
-    cells
+
+    row
   end
 
-  def pad_cells(cell, last_column)
-    pad = []
-    (cell.coordinate.x - 1 - last_column).times { pad << nil }
-    pad
+  def pad_cells(row, cell, last_column)
+    (cell.coordinate.x - 1 - last_column).times { row << nil }
   end
 
   # parse an individual cell xml element

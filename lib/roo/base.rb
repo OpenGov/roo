@@ -98,7 +98,7 @@ class Roo::Base
     if @first_row[sheet]
       return @first_row[sheet]
     end
-    impossible_value = 999_999 # more than a spreadsheet can hold
+    impossible_value = 999_999_999 # more than a spreadsheet can hold
     result = impossible_value
     @cell[sheet].each_pair {|key,value|
       y = key.first.to_i # _to_string(key).split(',')
@@ -134,7 +134,7 @@ class Roo::Base
     if @first_column[sheet]
       return @first_column[sheet]
     end
-    impossible_value = 999_999 # more than a spreadsheet can hold
+    impossible_value = 999_999_999 # more than a spreadsheet can hold
     result = impossible_value
     @cell[sheet].each_pair {|key,value|
       x = key.last.to_i # _to_string(key).split(',')
