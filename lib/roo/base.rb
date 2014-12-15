@@ -403,6 +403,8 @@ class Roo::Base
 
   # iterate through all worksheets of a document
   def each_with_pagename
+    return enum_for(:each_with_pagename, options) unless block_given?
+
     self.sheets.each do |s|
       yield sheet(s,true)
     end
@@ -432,6 +434,8 @@ class Roo::Base
   # odd unicode characters and white spaces around columns
 
   def each(options={})
+    return enum_for(:each, options) unless block_given?
+
     if options.empty?
       1.upto(last_row) do |line|
         yield row(line)
@@ -465,13 +469,7 @@ class Roo::Base
   end
 
   def parse(options={})
-    ary = []
-    if block_given?
-      each(options) {|row| ary << yield(row)}
-    else
-      each(options) {|row| ary << row}
-    end
-    ary
+    each(options).map
   end
 
   def row_with(query,return_headers=false)

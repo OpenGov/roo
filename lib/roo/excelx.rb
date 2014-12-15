@@ -110,7 +110,7 @@ class Roo::Excelx < Roo::Base
       end
       if minimal_load == true
         #warn ':minimal_load option will not load ANY sheets, or comments into memory, do not use unless you are
-        #      ONLY interested in using each_row_streaming to iterate over a sheet and extract values for each row'
+        #      ONLY interested in using each_row to iterate over a sheet and extract values for each row'
       else
         @sheet_doc = @sheet_files.compact.map do |item|
           load_xml(item)
@@ -365,53 +365,59 @@ class Roo::Excelx < Roo::Base
     end
   end
 
-  # Use this with initialize option, :minimal_load == true
-  # To process large files which you do not wish
-  # to pull entirely into memory
+  # This method iterates over all the rows, loading
+  # then from either read rows or streaming them
+  # depending on the :minimal_load initialization
+  # option.
   #
-  # yields each row as array of Roo::Excelx::Cell objects
-  # to given block
-  #
-  # options[:sheet] can be used to specify a
-  # sheet other than the default
-  # options[:max_rows] break when parsed max rows + 1 for header
-  def each_row_streaming(options = {})
-    raise StandardError, "Documents already loaded, streaming futile" if @sheet_doc
+  # options[:sheet] can be used to specify a sheet other
+  # than the default
+  # options[:max_rows] break when parsed max rows
+  def each_row(options = {})
+    return enum_for(:each_row, options) unless block_given?
 
     sheet = options[:sheet] || @default_sheet
     sheet_idx = sheets.index(sheet)
     row_count = 0
+
+    if @sheet_files && !@sheet_doc
+      each_row_streaming(sheet_idx, options[:max_rows])
+    else
+      each_row_loaded(sheet_idx, options[:max_rows])
+    end.each do |row|
+      yield row
+      row_count += 1
+      break if max_rows && row_count == max_rows
+    end
+  end
+
+  private
+
+  # Used in each_row when :minimal_load option is set
+  def each_row_streaming(sheet_idx)
+    return enum_for(:each_row_loaded, sheet_idx) unless block_given?
+
+    raise StandardError, "Documents already loaded, streaming futile" if @sheet_doc
     make_tmpdir do |tmpdir|
       file = extract_sheet_at_index(tmpdir, sheet_idx)
       raise "Invalid sheet" unless File.exists?(file)
       Nokogiri::XML::Reader(File.open(file)).each do |node|
         next if node.name      != 'row'
         next if node.node_type != Nokogiri::XML::Reader::TYPE_ELEMENT
-        yield cells_for_row_element(Nokogiri::XML(node.outer_xml).root, options) if block_given?
-        row_count += 1
-        break if options[:max_rows] && row_count == options[:max_rows] + 1 # dont count header
+        yield cells_for_row_element(Nokogiri::XML(node.outer_xml).root, options)
       end
     end
   end
 
-  # this method does not require you to read
-  # all rows first. However, this does require
-  # row xml to be loaded.
-  # If you do not want to load the entire xml
-  # document into memory, try each_row_streaming
-  #
-  # options[:sheet] can be used to specify a
-  # sheet other than the default
-  def each_row(options = {})
-    sheet = options[:sheet] || @default_sheet
-    raise StandardError, "Sheets not loaded! Do not use this interface with :minimal_load" if @sheet_files && !@sheet_doc
-    return unless @sheet_doc[sheets.index(sheet)]
+  # Used in each_row when :minimal_load option is not set
+  def each_row_loaded(sheet_idx)
+    return enum_for(:each_row_loaded, sheet_idx) unless block_given?
+
+    raise "Invalid sheet" unless @sheet_doc[sheets.index(sheet)]
     @sheet_doc[sheets.index(sheet)].xpath("/xmlns:worksheet/xmlns:sheetData/xmlns:row").each do |row|
-      yield cells_for_row_element(row, options) if block_given?
+      yield cells_for_row_element(row, options)
     end
   end
-
-  private
 
   # helper function to set the internal representation of cells
   def set_cell_values(sheet,x,y,i,v,value_type,formula,
