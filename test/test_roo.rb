@@ -68,7 +68,7 @@ class TestRoo < Test::Unit::TestCase
       begin
         if FORMATS[format]
           yield Roo::Spreadsheet.open(File.join(TESTDIR,
-            fixture_filename(options[:name], format)))
+            fixture_filename(options[:name], format)), options)
         end
       rescue => e
         raise e, "#{e.message} for #{format}", e.backtrace
@@ -2287,12 +2287,11 @@ where the expected result is
     end
 
     # Test with excelx specific options
-    with_each_spreadsheet(:name=>'simple_spreadsheet', :format=>:excelx) do |oo|
-      assert_equal expected, oo.each_row(minimal_load: true, strip_nils: true).to_a
-      table = oo.each_row(minimal_load: true, strip_nils: true, cells: true).map do |r|
-        r.map { |c| c ? c.value : c }
-      end
-      assert_equal expected, table
+    with_each_spreadsheet(:name=>'simple_spreadsheet', :format=>:excelx, :minimal_load=>true) do |oo|
+      # minimal_load doesn't do a full parse of the cells beforehand
+      assert_raises(StandardError) { oo.cell(1, 1) }
+      assert_equal expected, oo.each_row(strip_nils: true).to_a
+      assert_equal expected, oo.each_row(strip_nils: true, cells: true).map { |r| r.map { |c| c ? c.value : c } }
     end
   end
 
