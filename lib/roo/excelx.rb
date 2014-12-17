@@ -274,18 +274,20 @@ class Roo::Excelx < Roo::Base
   end
 
   # shows the internal representation of all cells
-  # for debugging purposes
-  # TODO: This is called everytime a file is loaded, which
-  # means read_cells(expensive) is always called immediately via XML parser. I suspect
-  # it should be off unless specifically needed for debug.
-  def to_s(sheet=nil)
+  # for debugging purposes if debug is truthy
+  def to_s(sheet = nil, debug = nil)
     sheet ||= @default_sheet
-    #read_cells(sheet)
-    if @cells_read && @cells_read[sheet]
+    # only print the whole thing on debug
+    if debug
+      read_cells(sheet)
       @cell[sheet].inspect
     else
       super()
     end
+  end
+
+  def inspect(sheet = nil, debug = nil)
+    to_s(sheet, debug)
   end
 
   # returns the row,col values of the labelled cell
@@ -377,17 +379,19 @@ class Roo::Excelx < Roo::Base
   # than the default
   # options[:max_rows] break when parsed max rows
   # options[:cells] indicates if cells or values should be
-  # returned
+  # returned (defaults false)
+  # options[:strip_nils] removes trailing nils from rows
   def each_row(options = {})
     return enum_for(:each_row, options) unless block_given?
 
     row_count = 0
-
     if @sheet_doc
       each_row_loaded(options)
     else
       each_row_streaming(options)
     end.each do |row|
+      # Handle cell and value row elements when popping
+      row.pop while options[:strip_nils] && (row.last.value.nil? rescue row.last.nil?) && !row.empty?
       yield row
       row_count += 1
       break if options[:max_rows] && row_count == options[:max_rows]
@@ -455,28 +459,13 @@ class Roo::Excelx < Roo::Base
       excelx_type=nil,
       excelx_value=nil,
       s_attribute=nil)
-    key = [y,x+i]
+    key = [y, x + i]
     @cell_type[sheet] ||= {}
     @cell_type[sheet][key] = value_type
     @formula[sheet] ||= {}
     @formula[sheet][key] = formula  if formula
     @cell[sheet] ||= {}
-    @cell[sheet][key] =
-        case @cell_type[sheet][key]
-        when :float
-          v.to_f
-        when :date
-          yyyy,mm,dd = (base_date+v.to_i).strftime("%Y-%m-%d").split('-')
-          Date.new(yyyy.to_i,mm.to_i,dd.to_i)
-        when :datetime
-          create_datetime_from((base_date+v.to_f.round(6)).strftime("%Y-%m-%d %H:%M:%S.%N"))
-        when :percentage
-          v.to_f
-        when :time
-          v.to_f*(24*60*60)
-        else
-          v
-        end
+    @cell[sheet][key] = v
     @excelx_type[sheet] ||= {}
     @excelx_type[sheet][key] = excelx_type
     @excelx_value[sheet] ||= {}
@@ -660,7 +649,6 @@ Datei xl/comments1.xml
         end
         excelx_type = [:numeric_or_formula, format.to_s]
         excelx_value = cell.content
-
         v = case value_type
             when :shared
               value_type = :string
@@ -669,16 +657,19 @@ Datei xl/comments1.xml
             when :boolean
               (excelx_value.to_i == 1 ? 'TRUE' : 'FALSE')
             when :date
-              excelx_value
+              yyyy, mm, dd = (base_date + excelx_value.to_i).strftime("%Y-%m-%d").split('-')
+              Date.new(yyyy.to_i, mm.to_i, dd.to_i)
             when :time
-              excelx_value
+              excelx_value.to_f*(24*60*60)
             when :datetime
-              excelx_value
+              create_datetime_from((base_date + excelx_value.to_f.round(6)).strftime("%Y-%m-%d %H:%M:%S.%N"))
             when :formula
               excelx_value.to_f #TODO: !!!!
             when :string
               excelx_type = :string
               excelx_value
+            when :percentage
+              excelx_value.to_f
             else
               val = excelx_value.to_f rescue excelx_value
               val = val.to_i if (val.to_f % 1).zero? rescue val

@@ -2265,4 +2265,35 @@ where the expected result is
     end
   end
 
+  def test_each_row
+    expected = [
+      [], [],
+      ["Date", "Start time", "End time", "Pause", "Sum", "Comment"],
+      [Date.new(2007, 5, 7), 9.25, 10.25, 0, 1, "Task 1"],
+      [Date.new(2007, 5, 7), 10.75, 12.5, 0, 1.75, "Task 1"],
+      [Date.new(2007, 5, 7), 18, 19, 0, 1, "Task 2"],
+      [Date.new(2007, 5, 8), 9.25, 10.25, 0, 1, "Task 2"],
+      [Date.new(2007, 5, 8), 14.5, 15.5, 0, 1, "Task 3"],
+      [Date.new(2007, 5, 8), 8.75, 9.25, 0, 0.5, "Task 3"],
+      [Date.new(2007, 5, 14), 21.75, 22.25, 0, 0.5, "Task 3"],
+      [Date.new(2007, 5, 14), 22.5, 23, 0, 0.5, "Task 3"],
+      [Date.new(2007, 5, 15), 11.75, 12.75, 0, 1, "Task 3"],
+      [Date.new(2007, 5, 7), 10.75, 10.75, 0, 0, "Task 1"],
+      [], [], [], [], [], []
+    ]
+
+    with_each_spreadsheet(:name=>'simple_spreadsheet', :format=>[:excel, :excelx]) do |oo|
+      assert_equal expected, oo.each_row(strip_nils: true).to_a
+    end
+
+    # Test with excelx specific options
+    with_each_spreadsheet(:name=>'simple_spreadsheet', :format=>:excelx) do |oo|
+      assert_equal expected, oo.each_row(minimal_load: true, strip_nils: true).to_a
+      table = oo.each_row(minimal_load: true, strip_nils: true, cells: true).map do |r|
+        r.map { |c| c ? c.value : c }
+      end
+      assert_equal expected, table
+    end
+  end
+
 end # class

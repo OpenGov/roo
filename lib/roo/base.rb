@@ -69,7 +69,19 @@ class Roo::Base
 
     @header_line = 1
     @default_sheet = self.sheets.first
-    @header_line = 1
+  end
+
+  def to_s
+    "<#{self.class.to_s} (@filename=\"#{@filename}\")"
+  end
+
+  def inspect
+    "<#{self.class.to_s} %s" % [
+      "@filename=\"#{@filename}\"",
+      "@options=#{@options.to_s}",
+      "@header_line=#{@header_line.to_s}>",
+      "@default_sheet=\"#{@default_sheet.to_s}\""
+    ].join(', ')
   end
 
   # sets the working sheet in the document
@@ -622,7 +634,7 @@ class Roo::Base
     if col.class == String
       col = Roo::Base.letter_to_number(col)
     end
-    return row,col
+    return row, col
   end
 
   def uri?(filename)

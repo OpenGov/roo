@@ -96,6 +96,7 @@ class Roo::Excel < Roo::Base
   # options[:sheet] can be used to specify a sheet other
   # than the default
   # options[:max_rows] break when parsed max rows
+  # options[:strip_nils] removes trailing nils from rows
   def each_row(options = {})
     return enum_for(:each_row, options) unless block_given?
 
@@ -105,22 +106,23 @@ class Roo::Excel < Roo::Base
     cell_sheet = @cell[sheet]
     build_rows = cell_sheet.empty?
     worksheet = @workbook.worksheet(sheet_no(sheet))
-    worksheet.each_with_index(0) do |row, row_index|
-      built_row = Array.new(row.size)
-      (0...row.size).each do |cell_index|
+    worksheet.each_with_index(0) do |xml_row, row_index|
+      row = Array.new(xml_row.size)
+      (0...xml_row.size).each do |cell_index|
         key = [row_index + 1, cell_index + 1]
         # Grab our saved values if the cell has already been parsed
         if build_rows
-          value_type, v = read_cell(row, cell_index)
-          font = row.format(cell_index).font
+          value_type, v = read_cell(xml_row, cell_index)
+          font = xml_row.format(cell_index).font
           value = set_cell_values(sheet, key[0], key[1], 0, v, value_type, nil, nil, font)
         else
-          value = built_row[cell_index] = cell_sheet.fetch(key, nil)
+          value = row[cell_index] = cell_sheet.fetch(key, nil)
         end
-        built_row[cell_index] = value
+        row[cell_index] = value
       end
 
-      yield built_row
+      row.pop while options[:strip_nils] && row.last.nil? && !row.empty?
+      yield row
       break if options[:max_rows] && row_index + 1 == options[:max_rows]
     end
   end
@@ -168,12 +170,20 @@ class Roo::Excel < Roo::Base
   end
 
   # shows the internal representation of all cells
-  # mainly for debugging purposes
-  def to_s(sheet = nil)
+  # for debugging purposes if debug is truthy
+  def to_s(sheet = nil, debug = nil)
     sheet ||= @default_sheet
-    read_cells(sheet)
+    # only print the whole thing on debug
+    if debug
+      read_cells(sheet)
+      @cell[sheet].inspect
+    else
+      super()
+    end
+  end
 
-    @cell[sheet].inspect
+  def inspect(sheet = nil, debug = nil)
+    to_s(sheet, debug)
   end
 
   # check if default_sheet was set and exists in sheets-array
