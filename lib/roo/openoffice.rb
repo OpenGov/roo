@@ -269,8 +269,6 @@ class Roo::OpenOffice < Roo::Base
     @style[sheet] = {} unless @style[sheet]
     @style[sheet][key] = style_name
     case @cell_type[sheet][key]
-    when :float
-      @cell[sheet][key] = v.to_f
     when :string
       @cell[sheet][key] = str_v
     when :date
@@ -283,8 +281,6 @@ class Roo::OpenOffice < Roo::Base
       else
         @cell[sheet][key] = table_cell.attributes['date-value']
       end
-    when :percentage
-      @cell[sheet][key] = v.to_f
     when :time
       hms = v.split(':')
       @cell[sheet][key] = hms[0].to_i*3600 + hms[1].to_i*60 + hms[2].to_i
@@ -380,9 +376,10 @@ class Roo::OpenOffice < Roo::Base
               when 'date'
                 #
               when 'percentage'
-                #
+                v = v.to_f
               when 'float'
-                #
+                v = v.to_f
+                v = Integer(v) if (v % 1).zero?
               when 'boolean'
                 v = attr(cell,'boolean-value').to_s
               else

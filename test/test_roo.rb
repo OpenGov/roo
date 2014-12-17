@@ -246,52 +246,52 @@ class TestRoo < Test::Unit::TestCase
 
   def test_italo_table
     with_each_spreadsheet(:name=>'simple_spreadsheet_from_italo', :format=>[:openoffice, :excel]) do |oo|
-      assert_equal  '1', oo.cell('A',1)
-      assert_equal  '1', oo.cell('B',1)
-      assert_equal  '1', oo.cell('C',1)
-      assert_equal  1, oo.cell('A',2).to_i
-      assert_equal  2, oo.cell('B',2).to_i
-      assert_equal  1, oo.cell('C',2).to_i
-      assert_equal  1, oo.cell('A',3)
-      assert_equal  3, oo.cell('B',3)
-      assert_equal  1, oo.cell('C',3)
-      assert_equal  'A', oo.cell('A',4)
-      assert_equal  'A', oo.cell('B',4)
-      assert_equal  'A', oo.cell('C',4)
-      assert_equal  0.01, oo.cell('A',5)
-      assert_equal  0.01, oo.cell('B',5)
-      assert_equal  0.01, oo.cell('C',5)
-      assert_equal 0.03, oo.cell('a',5)+oo.cell('b',5)+oo.cell('c',5)
+      assert_equal '1', oo.cell('A', 1)
+      assert_equal '1', oo.cell('B', 1)
+      assert_equal '1', oo.cell('C', 1)
+      assert_equal 1, oo.cell('A', 2).to_i
+      assert_equal 2, oo.cell('B', 2).to_i
+      assert_equal 1, oo.cell('C', 2).to_i
+      assert_equal 1, oo.cell('A', 3)
+      assert_equal 3, oo.cell('B', 3)
+      assert_equal 1, oo.cell('C', 3)
+      assert_equal 'A', oo.cell('A', 4)
+      assert_equal 'A', oo.cell('B', 4)
+      assert_equal 'A', oo.cell('C', 4)
+      assert_equal 0.01, oo.cell('A', 5)
+      assert_equal 0.01, oo.cell('B', 5)
+      assert_equal 0.01, oo.cell('C', 5)
+      assert_equal 0.03, oo.cell('a', 5) + oo.cell('b', 5) + oo.cell('c', 5)
 
       # Cells values in row 1:
-      assert_equal "1:string", oo.cell(1, 1)+":"+oo.celltype(1, 1).to_s
-      assert_equal "1:string",oo.cell(1, 2)+":"+oo.celltype(1, 2).to_s
-      assert_equal "1:string",oo.cell(1, 3)+":"+oo.celltype(1, 3).to_s
+      assert_equal "1:string", oo.cell(1, 1) + ":" + oo.celltype(1, 1).to_s
+      assert_equal "1:string", oo.cell(1, 2) + ":" + oo.celltype(1, 2).to_s
+      assert_equal "1:string", oo.cell(1, 3) + ":" + oo.celltype(1, 3).to_s
 
       # Cells values in row 2:
-      assert_equal "1:string",oo.cell(2, 1)+":"+oo.celltype(2, 1).to_s
-      assert_equal "2:string",oo.cell(2, 2)+":"+oo.celltype(2, 2).to_s
-      assert_equal "1:string",oo.cell(2, 3)+":"+oo.celltype(2, 3).to_s
+      assert_equal "1:string", oo.cell(2, 1) + ":" + oo.celltype(2, 1).to_s
+      assert_equal "2:string", oo.cell(2, 2) + ":" + oo.celltype(2, 2).to_s
+      assert_equal "1:string", oo.cell(2, 3) + ":" + oo.celltype(2, 3).to_s
 
       # Cells values in row 3:
-      assert_equal "1.0:float",oo.cell(3, 1).to_s+":"+oo.celltype(3, 1).to_s
-      assert_equal "3.0:float",oo.cell(3, 2).to_s+":"+oo.celltype(3, 2).to_s
-      assert_equal "1.0:float",oo.cell(3, 3).to_s+":"+oo.celltype(3, 3).to_s
+      assert_equal "1:float", oo.cell(3, 1).to_s + ":" + oo.celltype(3, 1).to_s
+      assert_equal "3:float", oo.cell(3, 2).to_s + ":" + oo.celltype(3, 2).to_s
+      assert_equal "1:float", oo.cell(3, 3).to_s + ":" + oo.celltype(3, 3).to_s
 
       # Cells values in row 4:
-      assert_equal "A:string",oo.cell(4, 1)+":"+oo.celltype(4, 1).to_s
-      assert_equal "A:string",oo.cell(4, 2)+":"+oo.celltype(4, 2).to_s
-      assert_equal "A:string",oo.cell(4, 3)+":"+oo.celltype(4, 3).to_s
+      assert_equal "A:string", oo.cell(4, 1) + ":" + oo.celltype(4, 1).to_s
+      assert_equal "A:string", oo.cell(4, 2) + ":" + oo.celltype(4, 2).to_s
+      assert_equal "A:string", oo.cell(4, 3) + ":" + oo.celltype(4, 3).to_s
 
       # Cells values in row 5:
       if oo.class == Roo::OpenOffice
-        assert_equal "0.01:percentage",oo.cell(5, 1).to_s+":"+oo.celltype(5, 1).to_s
-        assert_equal "0.01:percentage",oo.cell(5, 2).to_s+":"+oo.celltype(5, 2).to_s
-        assert_equal "0.01:percentage",oo.cell(5, 3).to_s+":"+oo.celltype(5, 3).to_s
+        assert_equal "0.01:percentage", oo.cell(5, 1).to_s + ":" + oo.celltype(5, 1).to_s
+        assert_equal "0.01:percentage", oo.cell(5, 2).to_s + ":" + oo.celltype(5, 2).to_s
+        assert_equal "0.01:percentage", oo.cell(5, 3).to_s + ":" + oo.celltype(5, 3).to_s
       else
-        assert_equal "0.01:float",oo.cell(5, 1).to_s+":"+oo.celltype(5, 1).to_s
-        assert_equal "0.01:float",oo.cell(5, 2).to_s+":"+oo.celltype(5, 2).to_s
-        assert_equal "0.01:float",oo.cell(5, 3).to_s+":"+oo.celltype(5, 3).to_s
+        assert_equal "0.01:float", oo.cell(5, 1).to_s + ":" + oo.celltype(5, 1).to_s
+        assert_equal "0.01:float", oo.cell(5, 2).to_s + ":" + oo.celltype(5, 2).to_s
+        assert_equal "0.01:float", oo.cell(5, 3).to_s + ":" + oo.celltype(5, 3).to_s
       end
     end
   end
@@ -831,6 +831,7 @@ class TestRoo < Test::Unit::TestCase
       oo.header_line = 3
       # oo.date_format = '%m/%d/%Y' if oo.class == Google
       erg = oo.find(:all, :conditions => {'Comment' => 'Task 1'})
+      assert_not_empty erg
       assert_equal Date.new(2007,05,07), erg[1]['Date']
       assert_equal 10.75       , erg[1]['Start time']
       assert_equal 12.50       , erg[1]['End time']
@@ -1537,8 +1538,8 @@ Sheet 3:
 
   def test_ruby_spreadsheet_formula_bug
      with_each_spreadsheet(:name=>'formula_parse_error', :format=>:excel) do |oo|
-       assert_equal '5026', oo.cell(2,3)
-       assert_equal '5026', oo.cell(3,3)
+       assert_equal 5026, oo.cell(2,3)
+       assert_equal 5026, oo.cell(3,3)
      end
   end
 

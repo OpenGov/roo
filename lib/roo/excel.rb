@@ -41,9 +41,14 @@ class Roo::Excel < Roo::Base
   # Parameter mode: 'rb+' - Mode of the xls file reader
   # Parameter input_encoding: Encoding:: - Encoding of the embeded binary data (default nil)
   # Parameter output_encoding: Encoding:: - Encoding of the internal string structures
-  def initialize(filename, options = {})
+  def initialize(filename, options = {}, deprecated_file_warning = nil)
+    unless Hash === options
+      warn 'Supplying `packed` or `file_warning` as separate arguments to `Roo::Excel.new` is deprecated. Use an options hash instead.'
+      options = { packed: options }
+    end
+
     packed = options[:packed]
-    file_warning = options[:file_warning] || :error
+    file_warning = options[:file_warning] || deprecated_file_warning || :error
     mode = options[:mode] || 'rb+'
     @input_encoding = options[:input_encoding]
     @output_encoding = options[:output_encoding] || Encoding::UTF_8
@@ -103,13 +108,13 @@ class Roo::Excel < Roo::Base
     worksheet.each_with_index(0) do |row, row_index|
       built_row = Array.new(row.size)
       (0...row.size).each do |cell_index|
+        key = [row_index + 1, cell_index + 1]
         # Grab our saved values if the cell has already been parsed
         if build_rows
           value_type, v = read_cell(row, cell_index)
           font = row.format(cell_index).font
-          value = set_cell_values(sheet, row_index, cell_index + 1, 0, v, value_type, nil, nil, font)
+          value = set_cell_values(sheet, key[0], key[1], 0, v, value_type, nil, nil, font)
         else
-          key = [row_index, cell_index + 1]
           value = built_row[cell_index] = cell_sheet.fetch(key, nil)
         end
         built_row[cell_index] = value
@@ -231,7 +236,11 @@ class Roo::Excel < Roo::Base
   # way formula stores the value
   def read_cell_content(row, idx)
     cell = row.at(idx)
-    cell = cell.value if cell.class == ::Spreadsheet::Formula
+    if cell.class == ::Spreadsheet::Formula
+      # Formulas oftentimes lose type information
+      cell = cell.value.to_f rescue cell.value
+      cell = cell.to_i if (cell.to_f % 1).zero? rescue cell
+    end
 
     cell
   end
@@ -257,23 +266,16 @@ class Roo::Excel < Roo::Base
       s = secs
       value = h * 3600 + m * 60 + s
     else
-      if row.at(idx).class == ::Spreadsheet::Formula
-        datetime = row.send(:_datetime, cell)
-      else
-        datetime = row.datetime(idx)
-      end
+      datetime = row.send(:_datetime, cell)
+
       if datetime.hour != 0 ||
           datetime.min != 0 ||
           datetime.sec != 0
         value_type = :datetime
-        value = DateTime.new(datetime.year, datetime.month, datetime.day, datetime.hour, datetime.min, datetime.sec)
+        value = datetime
       else
         value_type = :date
-        if row.at(idx).class == ::Spreadsheet::Formula
-          value = row.send(:_date, cell)
-        else
-          value = row.date(idx)
-        end
+        value = row.send(:_date, cell)
       end
     end
 
@@ -287,7 +289,10 @@ class Roo::Excel < Roo::Base
 
     cell = read_cell_content(row, idx)
     case cell
-    when Float, Integer, Fixnum, Bignum
+    when Integer, Fixnum, Bignum
+      value_type = :float
+      value = cell.to_i
+    when Float
       value_type = :float
       value = cell.to_f
     when String, TrueClass, FalseClass

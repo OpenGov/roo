@@ -469,7 +469,7 @@ class Roo::Base
   end
 
   def parse(options={})
-    each(options).map
+    each(options).map.to_a
   end
 
   def row_with(query,return_headers=false)
@@ -494,9 +494,9 @@ class Roo::Base
 
   protected
 
-  def load_xml(path)
+  def load_xml(path, encoding = nil)
     File.open(path) do |file|
-      Nokogiri::XML(file)
+      Nokogiri::XML(file, nil, encoding)
     end
   end
 
