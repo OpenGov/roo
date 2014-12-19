@@ -60,7 +60,7 @@ class Roo::Excel < Roo::Base
       filename = unzip(filename, tmpdir) if packed == :zip
 
       @filename = filename
-      unless File.file?(@filename)
+      unless @filename.respond_to? :seek || File.file?(@filename)
         fail IOError, "file #{@filename} does not exist"
       end
       @workbook = ::Spreadsheet.open(filename, mode)
