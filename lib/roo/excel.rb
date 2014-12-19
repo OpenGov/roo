@@ -212,11 +212,11 @@ class Roo::Excel < Roo::Base
       # which force encodes utf-8 to these two formats in different
       # places (As of v1.0.4).
       if str.encoding == Encoding::UTF_8
-        if str.size > 1 && str[1] == "\0"
-          force_value = String.new(str).force_encoding(Encoding::UTF_16LE)
-          str = force_value.encode(Encoding::UTF_8) if force_value.valid_encoding?
-        elsif str.size > 0 && str[0] == "\0"
-          force_value = String.new(str).force_encoding(Encoding::UTF_16BE)
+        input_encoding = nil
+        input_encoding = Encoding::UTF_16LE if str.size > 1 && str[1] == "\0"
+        input_encoding = Encoding::UTF_16BE if !input_encoding && str.size > 0 && str[0] == "\0"
+        if input_encoding
+          force_value = String.new(str).force_encoding(input_encoding)
           str = force_value.encode(Encoding::UTF_8) if force_value.valid_encoding?
         end
       end
