@@ -415,10 +415,10 @@ class Roo::Base
 
   # iterate through all worksheets of a document
   def each_with_pagename
-    return enum_for(:each_with_pagename, options) unless block_given?
+    return enum_for(:each_with_pagename) unless block_given?
 
     self.sheets.each do |s|
-      yield sheet(s,true)
+      yield sheet(s, true)
     end
   end
 
