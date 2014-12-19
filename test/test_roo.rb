@@ -2295,4 +2295,13 @@ where the expected result is
     end
   end
 
+  def test_write_excel_utf8_error
+    with_each_spreadsheet(:name=>'write_excel_utf8_error', :format=>:excel) do |oo|
+      expected = [[], [nil, "Hi Excel."], [nil, "Hi Excel."], [nil, 3.14159], [nil, 0]]
+      assert_equal expected, oo.each_row().to_a
+      # The sheet name was saved as UTF-16LE with a UTF-8 encoding (normalize should fix it)
+      assert_equal "Sheet1", oo.sheets[0]
+    end
+  end
+
 end # class
