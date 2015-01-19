@@ -69,7 +69,19 @@ class Roo::Base
 
     @header_line = 1
     @default_sheet = self.sheets.first
-    @header_line = 1
+  end
+
+  def to_s
+    "<#{self.class.to_s} (@filename=\"#{@filename}\")"
+  end
+
+  def inspect
+    "<#{self.class.to_s} %s" % [
+      "@filename=\"#{@filename}\"",
+      "@options=#{@options.to_s}",
+      "@header_line=#{@header_line.to_s}>",
+      "@default_sheet=\"#{@default_sheet.to_s}\""
+    ].join(', ')
   end
 
   # sets the working sheet in the document
@@ -98,7 +110,7 @@ class Roo::Base
     if @first_row[sheet]
       return @first_row[sheet]
     end
-    impossible_value = 999_999 # more than a spreadsheet can hold
+    impossible_value = 999_999_999 # more than a spreadsheet can hold
     result = impossible_value
     @cell[sheet].each_pair {|key,value|
       y = key.first.to_i # _to_string(key).split(',')
@@ -134,7 +146,7 @@ class Roo::Base
     if @first_column[sheet]
       return @first_column[sheet]
     end
-    impossible_value = 999_999 # more than a spreadsheet can hold
+    impossible_value = 999_999_999 # more than a spreadsheet can hold
     result = impossible_value
     @cell[sheet].each_pair {|key,value|
       x = key.last.to_i # _to_string(key).split(',')
@@ -403,8 +415,10 @@ class Roo::Base
 
   # iterate through all worksheets of a document
   def each_with_pagename
+    return enum_for(:each_with_pagename) unless block_given?
+
     self.sheets.each do |s|
-      yield sheet(s,true)
+      yield sheet(s, true)
     end
   end
 
@@ -432,6 +446,8 @@ class Roo::Base
   # odd unicode characters and white spaces around columns
 
   def each(options={})
+    return enum_for(:each, options) unless block_given?
+
     if options.empty?
       1.upto(last_row) do |line|
         yield row(line)
@@ -465,13 +481,7 @@ class Roo::Base
   end
 
   def parse(options={})
-    ary = []
-    if block_given?
-      each(options) {|row| ary << yield(row)}
-    else
-      each(options) {|row| ary << row}
-    end
-    ary
+    each(options).map.to_a
   end
 
   def row_with(query,return_headers=false)
@@ -496,9 +506,9 @@ class Roo::Base
 
   protected
 
-  def load_xml(path)
+  def load_xml(path, encoding = nil)
     File.open(path) do |file|
-      Nokogiri::XML(file)
+      Nokogiri::XML(file, nil, encoding)
     end
   end
 
@@ -624,7 +634,7 @@ class Roo::Base
     if col.class == String
       col = Roo::Base.letter_to_number(col)
     end
-    return row,col
+    return row, col
   end
 
   def uri?(filename)

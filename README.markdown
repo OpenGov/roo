@@ -124,16 +124,26 @@ xls.parse(:header_search => ['UPC*SKU','ATS*\sATP\s*QTY$'])
 
 xls.parse(:clean => true)
 
-# another bonus feature is a patch to prevent the Spreadsheet gem from parsing
-# thousands and thousands of blank lines. i got fed up after watching my computer
+# Another bonus feature is a patch to prevent the Spreadsheet gem from parsing
+# thousands and thousands of blank lines. I got fed up after watching my computer
 # nearly catch fire for 4 hours for a spreadsheet with only 200 ACTUAL lines
 # - located in lib/roo/worksheet.rb
 
-# if you want to load and stream .xlsx rows
+# If you want to load and stream .xlsx rows efficiently for a single pass then
+# set the :minimal_load option and run each_row. If you're going to repeatidly
+# iterate, leave out the minimal_load option for best performance at the cost
+# of memory.
 
-s = Roo::Excelx.new("./test_data/test_small.xlsx", :minimal_load => true)
-s.each_row_streaming do |row|
+xlsx = Roo::Excelx.new("./test_data/test_small.xlsx", :minimal_load => true)
+xlsx.each_row do |row|
     puts row.inspect # Array of Excelx::Cell objects
+end
+
+# this method also works for xls files, though there's no :minimal_load option
+
+xls = Roo::Spreadsheet.open('./new_prices.xls')
+xls.each_row do |row|
+    puts row.inspect # Array of objects (String, Date, Fixnum, etc...)
 end
 
 ```

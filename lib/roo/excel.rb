@@ -1,45 +1,75 @@
 require 'spreadsheet'
 
+class Worksheet < ::Spreadsheet::Excel::Worksheet
+  def each_with_index(*args)
+    return enum_for(:each_with_index, *args) unless block_given?
+
+    index = 0
+    each(*args) do |v|
+      yield v, index
+      index += 1
+    end
+  end
+end
+
+# ruby-spreadsheet has a font object so we're extending it
+# with our own functionality but still providing full access
+# to the user for other font information
+class ::Spreadsheet::Font
+  def bold?(*args)
+    #From ruby-spreadsheet doc: 100 <= weight <= 1000, bold => 700, normal => 400
+    weight == 700
+  end
+
+  def italic?
+    italic
+  end
+
+  def underline?
+    underline != :none
+  end
+end
+
 # Class for handling Excel-Spreadsheets
 class Roo::Excel < Roo::Base
   FORMULAS_MESSAGE = 'the spreadsheet gem does not support forumulas, so roo can not.'
-  CHARGUESS =
-    begin
-      require 'charguess'
-      true
-    rescue LoadError
-      false
-    end
 
   attr_reader :workbook
 
   # Creates a new Excel spreadsheet object.
   # Parameter packed: :zip - File is a zip-file
-  def initialize(filename, options = {}, deprecated_file_warning = :error)
-    if Hash === options
-      packed = options[:packed]
-      file_warning = options[:file_warning] || :error
-    else
+  # Parameter mode: 'rb+' - Mode of the xls file reader
+  # Parameter output_encoding: Encoding:: - Encoding of the internal string structures
+  def initialize(filename, options = {}, deprecated_file_warning = nil)
+    unless Hash === options
       warn 'Supplying `packed` or `file_warning` as separate arguments to `Roo::Excel.new` is deprecated. Use an options hash instead.'
-      packed = options
-      file_warning = deprecated_file_warning
+      options = { packed: options }
     end
 
-    file_type_check(filename,'.xls','an Excel', file_warning, packed)
+    packed = options[:packed]
+    file_warning = options[:file_warning] || deprecated_file_warning || :error
+    mode = options[:mode] || 'rb+'
+    @output_encoding = options[:output_encoding] || Encoding::UTF_8
+
+    file_type_check(filename, '.xls', 'an Excel', file_warning, packed)
     make_tmpdir do |tmpdir|
       filename = download_uri(filename, tmpdir) if uri?(filename)
-      filename = open_from_stream(filename[7..-1], tmpdir) if filename[0,7] == "stream:"
+      filename = open_from_stream(filename[7..-1], tmpdir) if filename.is_a?(::String) && filename.start_with?('stream:')
       filename = unzip(filename, tmpdir) if packed == :zip
 
       @filename = filename
-      unless File.file?(@filename)
-        raise IOError, "file #{@filename} does not exist"
+      if !@filename.respond_to?(:seek) && !File.file?(@filename)
+        fail IOError, "file #{@filename} does not exist"
       end
-      @workbook = Spreadsheet.open(filename)
+      @workbook = ::Spreadsheet.open(filename, mode)
     end
     super(filename, options)
-    @formula = Hash.new
-    @fonts = Hash.new
+    @formula = {}
+    @fonts = {}
+  end
+
+  def worksheets
+    @worksheets ||= @workbook.worksheets
   end
 
   def encoding=(codepage)
@@ -48,37 +78,59 @@ class Roo::Excel < Roo::Base
 
   # returns an array of sheet names in the spreadsheet
   def sheets
-    @workbook.worksheets.collect {|worksheet| normalize_string(worksheet.name)}
+    worksheets.collect {|worksheet| normalize_string(worksheet.name)}
   end
 
   # this method lets you find the worksheet with the most data
   def longest_sheet
-    sheet(@workbook.worksheets.inject {|m,o|
+    sheet(worksheets.inject {|m, o|
       o.row_count > m.row_count ? o : m
     }.name)
   end
 
-  # returns the content of a cell. The upper left corner is (1,1) or ('A',1)
-  def cell(row,col,sheet=nil)
-    sheet ||= @default_sheet
+  # Iterates through each row for of a particular sheet
+  # Does not pad past the last present cell
+  #
+  # options[:sheet] can be used to specify a sheet other
+  # than the default
+  # options[:max_rows] break when parsed max rows
+  # options[:strip_nils] removes trailing nils from rows
+  def each_row(options = {})
+    return enum_for(:each_row, options) unless block_given?
+
+    sheet = options[:sheet] || @default_sheet
     validate_sheet!(sheet)
 
-    read_cells(sheet)
-    raise "should be read" unless @cells_read[sheet]
-    row,col = normalize(row,col)
-    if celltype(row,col,sheet) == :date
-      yyyy,mm,dd = @cell[sheet][[row,col]].split('-')
-      return Date.new(yyyy.to_i,mm.to_i,dd.to_i)
-    end
-    if celltype(row,col,sheet) == :string
-      return platform_specific_encoding(@cell[sheet][[row,col]])
-    else
-      if @cell[sheet] and @cell[sheet][[row,col]]
-        return @cell[sheet][[row,col]]
-      else
-        return nil
+    cell_sheet = @cell[sheet]
+    build_rows = cell_sheet.empty?
+    worksheet = @workbook.worksheet(sheet_no(sheet))
+    worksheet.each_with_index(0) do |xml_row, row_index|
+      row = Array.new(xml_row.size)
+      (0...xml_row.size).each do |cell_index|
+        key = [row_index + 1, cell_index + 1]
+        # Grab our saved values if the cell has already been parsed
+        if build_rows
+          value_type, v = read_cell(xml_row, cell_index)
+          font = xml_row.format(cell_index).font
+          value = set_cell_values(sheet, key[0], key[1], 0, v, value_type, nil, nil, font)
+        else
+          value = row[cell_index] = cell_sheet.fetch(key, nil)
+        end
+        row[cell_index] = value
       end
+
+      row.pop while options[:strip_nils] && row.last.nil? && !row.empty?
+      yield row
+      break if options[:max_rows] && row_index + 1 == options[:max_rows]
     end
+  end
+
+  # returns the content of a cell. The upper left corner is (1,1) or ('A',1)
+  def cell(row, col, sheet = nil)
+    sheet ||= @default_sheet
+    read_cells(sheet)
+
+    @cell[sheet].fetch(normalize(row, col).to_a, nil)
   end
 
   # returns the type of a cell:
@@ -89,204 +141,130 @@ class Roo::Excel < Roo::Base
   # * :formula
   # * :time
   # * :datetime
-  def celltype(row,col,sheet=nil)
+  def celltype(row, col, sheet = nil)
     sheet ||= @default_sheet
     read_cells(sheet)
-    row,col = normalize(row,col)
-    begin
-      if @formula[sheet] and @formula[sheet][[row,col]]
-        :formula
-      elsif @cell_type[sheet]
-        @cell_type[sheet][[row,col]]
-      end
-    rescue
-      puts "Error in sheet #{sheet}, row #{row}, col #{col}"
-      raise
-    end
+
+    @cell_type[sheet].fetch(normalize(row, col).to_a, nil)
   end
 
   # returns NO formula in excel spreadsheets
-  def formula(row,col,sheet=nil)
+  def formula(_row, _col, _sheet = nil)
     raise NotImplementedError, FORMULAS_MESSAGE
   end
   alias_method :formula?, :formula
 
   # returns NO formulas in excel spreadsheets
-  def formulas(sheet=nil)
+  def formulas(_sheet=nil)
     raise NotImplementedError, FORMULAS_MESSAGE
   end
 
   # Given a cell, return the cell's font
-  def font(row, col, sheet=nil)
+  def font(row, col, sheet = nil)
     sheet ||= @default_sheet
     read_cells(sheet)
-    row,col = normalize(row,col)
-    @fonts[sheet][[row,col]]
+
+    @fonts[sheet][normalize(row,col).to_a]
   end
 
   # shows the internal representation of all cells
-  # mainly for debugging purposes
-  def to_s(sheet=nil)
+  # for debugging purposes if debug is truthy
+  def to_s(sheet = nil, debug = nil)
     sheet ||= @default_sheet
-    read_cells(sheet)
-    @cell[sheet].inspect
+    # only print the whole thing on debug
+    if debug
+      read_cells(sheet)
+      @cell[sheet].inspect
+    else
+      super()
+    end
+  end
+
+  def inspect(sheet = nil, debug = nil)
+    to_s(sheet, debug)
+  end
+
+  # check if default_sheet was set and exists in sheets-array
+  def validate_sheet!(sheet)
+    super
+    # establish our sheet lookups so we don't do this each cell assignment
+    @cell_type[sheet] ||= {}
+    @formula[sheet] ||= {}
+    @cell[sheet] ||= {}
+    @fonts[sheet] ||= {}
   end
 
   private
 
   # converts name of a sheet to index (0,1,2,..)
   def sheet_no(name)
-    return name-1 if name.kind_of?(Fixnum)
-    i = 0
-    @workbook.worksheets.each do |worksheet|
-      return i if name == normalize_string(worksheet.name)
-      i += 1
+    return name - 1 if name.is_a?(Fixnum)
+    worksheets.each_with_index do |worksheet, index|
+      return index if name == normalize_string(worksheet.name)
     end
     raise StandardError, "sheet '#{name}' not found"
   end
 
-  def normalize_string(value)
-    value = every_second_null?(value) ? remove_every_second_null(value) : value
-    if CHARGUESS && encoding = CharGuess::guess(value)
-      encoding.encode Encoding::UTF_8
-    else
-      platform_specific_encoding(value)
-    end
-  end
-
-  def platform_specific_encoding(value)
-    result =
-      case RUBY_PLATFORM.downcase
-      when /darwin|solaris/
-        value.encode Encoding::UTF_8
-      when /mswin32/
-        value.encode Encoding::ISO_8859_1
-      else
-        value
+  # copies the input if any encoding changes occur
+  def normalize_string(str)
+    if str.respond_to?(:encoding)
+      # These are to fix strings generated by the WriteExcel gem
+      # which force encodes utf-8 to these two formats in different
+      # places (As of v1.0.4).
+      if str.encoding == Encoding::UTF_8
+        input_encoding = nil
+        input_encoding = Encoding::UTF_16LE if str.size > 1 && str[1] == "\0"
+        input_encoding = Encoding::UTF_16BE if !input_encoding && str.size > 0 && str[0] == "\0"
+        if input_encoding
+          force_value = String.new(str).force_encoding(input_encoding)
+          str = force_value.encode(Encoding::UTF_8) if force_value.valid_encoding?
+        end
       end
-    if every_second_null?(result)
-      result = remove_every_second_null(result)
-    end
-    result
-  end
 
-  def every_second_null?(str)
-    result = true
-    return false if str.length < 2
-    0.upto(str.length/2-1) do |i|
-      if str[i*2+1,1] != "\000"
-        result = false
-        break
-      end
+      str = str.encode(@output_encoding, 'binary', undef: :replace) if @output_encoding && str.encoding != @output_encoding
     end
-    result
-  end
 
-  def remove_every_second_null(str)
-    result = ''
-    0.upto(str.length/2-1) do |i|
-      c = str[i*2,1]
-      result += c
-    end
-    result
+    str
   end
 
   # helper function to set the internal representation of cells
-  def set_cell_values(sheet,row,col,i,v,value_type,formula,tr,font)
-    #key = "#{y},#{x+i}"
-    key = [row,col+i]
-    @cell_type[sheet] = {} unless @cell_type[sheet]
+  def set_cell_values(sheet, row, col, i, v, value_type, formula, _tr, font)
+    # key = "#{y}, #{x+i}"
+    key = [row, col + i]
+    if formula
+      @formula[sheet][key] = formula
+      value_type = :formula
+    end
     @cell_type[sheet][key] = value_type
-    @formula[sheet] = {} unless @formula[sheet]
-    @formula[sheet][key] = formula  if formula
-    @cell[sheet]    = {} unless @cell[sheet]
-    @fonts[sheet] = {} unless @fonts[sheet]
     @fonts[sheet][key] = font
-
-    @cell[sheet][key] =
-      case value_type
-      when :float
-        v.to_f
-      when :string
-        v
-      when :date
-        v
-      when :datetime
-        @cell[sheet][key] = DateTime.new(v.year,v.month,v.day,v.hour,v.min,v.sec)
-      when :percentage
-        v.to_f
-      when :time
-        v
-      else
-        v
-      end
-  end
-
-  # ruby-spreadsheet has a font object so we're extending it
-  # with our own functionality but still providing full access
-  # to the user for other font information
-  module ExcelFontExtensions
-    def bold?(*args)
-      #From ruby-spreadsheet doc: 100 <= weight <= 1000, bold => 700, normal => 400
-      weight == 700
-    end
-
-    def italic?
-      italic
-    end
-
-    def underline?
-      underline != :none
-    end
+    @cell[sheet][key] = v
   end
 
   # read all cells in the selected sheet
-  def read_cells(sheet=nil)
+  def read_cells(sheet = nil)
     sheet ||= @default_sheet
-    validate_sheet!(sheet)
-    return if @cells_read[sheet]
+    return if @cells_read[sheet] && !@cells_read[sheet].empty?
+    each_row(sheet: sheet).each { |_row| }
 
-    worksheet = @workbook.worksheet(sheet_no(sheet))
-    row_index=1
-    worksheet.each(0) do |row|
-      (0..row.size).each do |cell_index|
-        cell = row.at(cell_index)
-        next if cell.nil?  #skip empty cells
-        next if cell.class == Spreadsheet::Formula && cell.value.nil? # skip empty formula cells
-        value_type, v =
-          if date_or_time?(row, cell_index)
-            read_cell_date_or_time(row, cell_index)
-          else
-            read_cell(row, cell_index)
-          end
-        formula = tr = nil #TODO:???
-        col_index = cell_index + 1
-        font = row.format(cell_index).font
-        font.extend(ExcelFontExtensions)
-        set_cell_values(sheet,row_index,col_index,0,v,value_type,formula,tr,font)
-      end #row
-      row_index += 1
-    end # worksheet
-    @cells_read[sheet] = true
+    @cells_read[sheet]
   end
 
   # Get the contents of a cell, accounting for the
   # way formula stores the value
   def read_cell_content(row, idx)
     cell = row.at(idx)
-    cell = cell.value if cell.class == Spreadsheet::Formula
+    if cell.class == ::Spreadsheet::Formula
+      # Formulas oftentimes lose type information
+      cell = cell.value.to_f rescue cell.value
+      cell = cell.to_i if (cell.to_f % 1).zero? rescue cell
+    end
+
     cell
   end
 
   # Test the cell to see if it's a valid date/time.
   def date_or_time?(row, idx)
-    format = row.format(idx)
-    if format.date_or_time?
-      cell = read_cell_content(row, idx)
-      true if Float(cell) > 0 rescue false
-    else
-      false
-    end
+    row.format(idx).date_or_time? && Float(read_cell_content(row, idx)) > 0 rescue false
   end
 
   # Read the date-time cell and convert to,
@@ -296,54 +274,56 @@ class Roo::Excel < Roo::Base
     cell = cell.to_s.to_f
     if cell < 1.0
       value_type = :time
-      f = cell*24.0*60.0*60.0
+      f = cell * 24.0 * 60.0 * 60.0
       secs = f.round
       h = (secs / 3600.0).floor
-      secs = secs - 3600*h
+      secs = secs - 3600 * h
       m = (secs / 60.0).floor
-      secs = secs - 60*m
+      secs = secs - 60 * m
       s = secs
-      value = h*3600+m*60+s
+      value = h * 3600 + m * 60 + s
     else
-      if row.at(idx).class == Spreadsheet::Formula
-        datetime = row.send(:_datetime, cell)
-      else
-        datetime = row.datetime(idx)
-      end
-      if datetime.hour != 0 or
-          datetime.min != 0 or
+      datetime = row.send(:_datetime, cell)
+
+      if datetime.hour != 0 ||
+          datetime.min != 0 ||
           datetime.sec != 0
         value_type = :datetime
         value = datetime
       else
         value_type = :date
-        if row.at(idx).class == Spreadsheet::Formula
-          value = row.send(:_date, cell)
-        else
-          value = row.date(idx)
-        end
-        value = sprintf("%04d-%02d-%02d",value.year,value.month,value.day)
+        value = row.send(:_date, cell)
       end
     end
-    return value_type, value
+
+    [value_type, value]
   end
 
   # Read the cell and based on the class,
   # return the values for Roo
   def read_cell(row, idx)
+    return read_cell_date_or_time(row, idx) if date_or_time?(row, idx)
+
     cell = read_cell_content(row, idx)
     case cell
-    when Float, Integer, Fixnum, Bignum
+    when Integer, Fixnum, Bignum
+      value_type = :float
+      value = cell.to_i
+    when Float
       value_type = :float
       value = cell.to_f
     when String, TrueClass, FalseClass
       value_type = :string
-      value = cell.to_s
+      value = normalize_string(cell.to_s)
+    when ::Spreadsheet::Link
+      value_type = :link
+      value = cell
     else
       value_type = cell.class.to_s.downcase.to_sym
       value = nil
     end # case
-    return value_type, value
+
+    [value_type, value]
   end
 
 end

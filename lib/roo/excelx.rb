@@ -90,7 +90,8 @@ class Roo::Excelx < Roo::Base
       end
       @comments_files = Array.new
       extract_content(tmpdir, @filename)
-      @workbook_doc = load_xml(File.join(tmpdir, "roo_workbook.xml"))
+      # We have to encode to UTF-8 because nokogiri explodes gsubing UTF-16/other encoding headers (bug?)
+      @workbook_doc = load_xml(File.join(tmpdir, "roo_workbook.xml"), "UTF-8")
 
       if cell_max
         cell_count = Roo::Base.cells_in_range(dimensions)
@@ -99,24 +100,24 @@ class Roo::Excelx < Roo::Base
 
       @shared_table = []
       if File.exist?(File.join(tmpdir, 'roo_sharedStrings.xml'))
-        @sharedstring_doc = load_xml(File.join(tmpdir, 'roo_sharedStrings.xml'))
+        @sharedstring_doc = load_xml(File.join(tmpdir, 'roo_sharedStrings.xml'), "UTF-8")
         read_shared_strings(@sharedstring_doc)
       end
       @styles_table = []
       @style_definitions = Array.new # TODO: ??? { |h,k| h[k] = {} }
       if File.exist?(File.join(tmpdir, 'roo_styles.xml'))
-        @styles_doc = load_xml(File.join(tmpdir, 'roo_styles.xml'))
+        @styles_doc = load_xml(File.join(tmpdir, 'roo_styles.xml'), "UTF-8")
         read_styles(@styles_doc)
       end
       if minimal_load == true
         #warn ':minimal_load option will not load ANY sheets, or comments into memory, do not use unless you are
-        #      ONLY interested in using each_row_streaming to iterate over a sheet and extract values for each row'
+        #      ONLY interested in using each_row to iterate over a sheet and extract values for each row'
       else
         @sheet_doc = @sheet_files.compact.map do |item|
-          load_xml(item)
+          load_xml(item, "UTF-8")
         end
         @comments_doc = @comments_files.compact.map do |item|
-          load_xml(item)
+          load_xml(item, "UTF-8")
         end
       end
     end
@@ -150,17 +151,9 @@ class Roo::Excelx < Roo::Base
   def cell(row, col, sheet=nil)
     sheet ||= @default_sheet
     read_cells(sheet)
-    row,col = normalize(row,col)
-    if celltype(row,col,sheet) == :date
-      yyyy,mm,dd = @cell[sheet][[row,col]].split('-')
-      return Date.new(yyyy.to_i,mm.to_i,dd.to_i)
-    elsif celltype(row,col,sheet) == :datetime
-      date_part,time_part = @cell[sheet][[row,col]].split(' ')
-      yyyy,mm,dd = date_part.split('-')
-      hh,mi,ss = time_part.split(':')
-      return DateTime.civil(yyyy.to_i,mm.to_i,dd.to_i,hh.to_i,mi.to_i,ss.to_i)
-    end
-    @cell[sheet][[row,col]]
+    row, col = normalize(row, col)
+
+    @cell[sheet][[row, col]]
   end
 
   # Returns the formula at (row,col).
@@ -265,24 +258,36 @@ class Roo::Excelx < Roo::Base
 
   # returns an array of sheet names in the spreadsheet
   def sheets
-    @workbook_doc.xpath("//xmlns:sheet").map do |sheet|
+    @sheet_names ||= @workbook_doc.xpath("//xmlns:sheet").map do |sheet|
       sheet['name']
     end
   end
 
+  # returns the sheet index by name
+  # passed indexes through
+  def sheet_index(sheet)
+    if sheet.is_a?(Fixnum)
+      sheet
+    else
+      sheets.index(sheet)
+    end
+  end
+
   # shows the internal representation of all cells
-  # for debugging purposes
-  # TODO: This is called everytime a file is loaded, which
-  # means read_cells(expensive) is always called immediately via XML parser. I suspect
-  # it should be off unless specifically needed for debug.
-  def to_s(sheet=nil)
+  # for debugging purposes if debug is truthy
+  def to_s(sheet = nil, debug = nil)
     sheet ||= @default_sheet
-    #read_cells(sheet)
-    if @cells_read && @cells_read[sheet]
+    # only print the whole thing on debug
+    if debug
+      read_cells(sheet)
       @cell[sheet].inspect
     else
       super()
     end
+  end
+
+  def inspect(sheet = nil, debug = nil)
+    to_s(sheet, debug)
   end
 
   # returns the row,col values of the labelled cell
@@ -352,11 +357,11 @@ class Roo::Excelx < Roo::Base
   # consumable without having to parse a large xml file.
   def dimensions(options = {})
     sheet = options[:sheet] || @default_sheet
-    sheet_idx = sheets.index(sheet) || 0
+    sheet_idx = sheet_index(sheet)
     row_count = 0
     make_tmpdir do |tmpdir|
       file = extract_sheet_at_index(tmpdir, sheet_idx)
-      Nokogiri::XML::Reader(File.open(file)).each do |node|
+      Nokogiri::XML::Reader(File.open(file), nil, 'UTF-8').each do |node|
         next if node.name      != 'dimension'
         next if node.node_type != Nokogiri::XML::Reader::TYPE_ELEMENT
         dimension = node.attribute('ref')
@@ -365,96 +370,122 @@ class Roo::Excelx < Roo::Base
     end
   end
 
-  # Use this with initialize option, :minimal_load == true
-  # To process large files which you do not wish
-  # to pull entirely into memory
+  # This method iterates over all the rows, loading
+  # then from either read rows or streaming them
+  # depending on the :minimal_load initialization
+  # option.
   #
-  # yields each row as array of Roo::Excelx::Cell objects
-  # to given block
-  #
-  # options[:sheet] can be used to specify a
-  # sheet other than the default
-  # options[:max_rows] break when parsed max rows + 1 for header
-  # options[:pad_cells] can be used to track empty cells, defaults to true
-  # nil is inserted for each empty cell.
-  # Does not pad past the last present cell
-  def each_row_streaming(options = {})
-    raise StandardError, "Documents already loaded, streaming futile" if @sheet_doc
-
-    options[:pad_cells] = true if options[:pad_cells].nil?
-
-    sheet = options[:sheet] || @default_sheet
-    sheet_idx = sheets.index(sheet)
-    row_count = 0
-    make_tmpdir do |tmpdir|
-      file = extract_sheet_at_index(tmpdir, sheet_idx)
-      raise "Invalid sheet" unless File.exists?(file)
-      Nokogiri::XML::Reader(File.open(file)).each do |node|
-        next if node.name      != 'row'
-        next if node.node_type != Nokogiri::XML::Reader::TYPE_ELEMENT
-        yield cells_for_row_element(Nokogiri::XML(node.outer_xml).root, options) if block_given?
-        row_count += 1
-        break if options[:max_rows] && row_count == options[:max_rows] + 1 # dont count header
-      end
-    end
-  end
-
-  # this method does not require you to read
-  # all rows first. However, this does require
-  # row xml to be loaded.
-  # If you do not want to load the entire xml
-  # document into memory, try each_row_streaming
-  #
-  # options[:sheet] can be used to specify a
-  # sheet other than the default
-  # options[:pad_cells] can be used to track empty cells
-  # nil is inserted for each empty cell.
-  # Does not pad past the last present cell
+  # options[:sheet] can be used to specify a sheet other
+  # than the default
+  # options[:max_rows] break when parsed max rows
+  # options[:cells] indicates if cells or values should be
+  # returned (defaults false)
+  # options[:strip_nils] removes trailing nils from rows
   def each_row(options = {})
-    sheet = options[:sheet] || @default_sheet
-    raise StandardError, "Sheets not loaded! Do not use this interface with :minimal_load" if @sheet_files && !@sheet_doc
-    return unless @sheet_doc[sheets.index(sheet)]
-    @sheet_doc[sheets.index(sheet)].xpath("/xmlns:worksheet/xmlns:sheetData/xmlns:row").each do |row|
-      yield cells_for_row_element(row, options) if block_given?
+    return enum_for(:each_row, options) unless block_given?
+
+    row_count = 0
+    if @sheet_doc
+      each_row_loaded(options)
+    else
+      each_row_streaming(options)
+    end.each do |row|
+      # Handle cell and value row elements when popping
+      row.pop while options[:strip_nils] && (row.last.value.nil? rescue row.last.nil?) && !row.empty?
+      yield row
+      row_count += 1
+      break if options[:max_rows] && row_count == options[:max_rows]
     end
   end
 
   private
+
+  # Used in each_row when :minimal_load option is set
+  def each_row_streaming(options)
+    return enum_for(:each_row_streaming, options) unless block_given?
+
+    raise StandardError, "Documents already loaded, turn on minimal_load to use this method" if @sheet_doc
+
+    sheet = options[:sheet] || @default_sheet
+    last_row_pos = 0
+    make_tmpdir do |tmpdir|
+      file = extract_sheet_at_index(tmpdir, sheet_index(sheet))
+      raise "Invalid sheet" unless File.exists?(file)
+      Nokogiri::XML::Reader(File.open(file), nil, 'UTF-8').each do |node|
+        next if node.name      != 'row'
+        next if node.node_type != Nokogiri::XML::Reader::TYPE_ELEMENT
+
+        row = Nokogiri::XML(node.outer_xml).root
+        row_pos = xml_row_pos(row)
+        # Add blank rows
+        (last_row_pos + 1).upto(row_pos - 1).each { |_r| yield [] }
+        last_row_pos = row_pos
+        yield cells_for_row_element(row, options)
+      end
+    end
+  end
+
+  # Used in each_row when :minimal_load option is not set
+  def each_row_loaded(options)
+    return enum_for(:each_row_loaded, options) unless block_given?
+
+    raise StandardError, "Documents not loaded, turn off minimal_load to use this method" unless @sheet_doc
+
+    sheet = options[:sheet] || @default_sheet
+    sheet_idx = sheet_index(sheet)
+    last_row_pos = 0
+    raise StandardError, "Invalid sheet" unless @sheet_doc[sheet_idx]
+    @sheet_doc[sheet_idx].xpath("/xmlns:worksheet/xmlns:sheetData/xmlns:row").each do |row|
+      row_pos = xml_row_pos(row)
+      # Add blank rows
+      (last_row_pos + 1).upto(row_pos - 1).each { |_r| yield [] }
+      last_row_pos = row_pos
+      yield cells_for_row_element(row, options)
+    end
+  end
+
+  def xml_row_pos(row)
+    row['r'].to_i
+  end
+
+  def xml_row_width(row)
+    first, last = row['spans'].split(':').map(&:to_i)
+
+    last - first + 1
+  end
 
   # helper function to set the internal representation of cells
   def set_cell_values(sheet,x,y,i,v,value_type,formula,
       excelx_type=nil,
       excelx_value=nil,
       s_attribute=nil)
-    key = [y,x+i]
+    key = [y, x + i]
     @cell_type[sheet] ||= {}
     @cell_type[sheet][key] = value_type
     @formula[sheet] ||= {}
     @formula[sheet][key] = formula  if formula
     @cell[sheet] ||= {}
-    @cell[sheet][key] =
-        case @cell_type[sheet][key]
-        when :float
-          v.to_f
-        when :string
-          v
-        when :date
-          (base_date+v.to_i).strftime("%Y-%m-%d")
-        when :datetime
-          (base_date+v.to_f).strftime("%Y-%m-%d %H:%M:%S")
-        when :percentage
-          v.to_f
-        when :time
-          v.to_f*(24*60*60)
-        else
-          v
-        end
+    @cell[sheet][key] = v
     @excelx_type[sheet] ||= {}
     @excelx_type[sheet][key] = excelx_type
     @excelx_value[sheet] ||= {}
     @excelx_value[sheet][key] = excelx_value
     @s_attribute[sheet] ||= {}
     @s_attribute[sheet][key] = s_attribute
+  end
+
+  def create_datetime_from(datetime_string)
+    date_part, time_part = round_time_from(datetime_string).split(' ')
+    yyyy, mm, dd = date_part.split('-')
+    hh, mi, ss = time_part.split(':')
+    DateTime.civil(yyyy.to_i, mm.to_i, dd.to_i, hh.to_i, mi.to_i, ss.to_i)
+  end
+
+  def round_time_from(datetime_string)
+    date_part,time_part = datetime_string.split(' ')
+    yyyy, mm, dd = date_part.split('-')
+    hh, mi, ss = time_part.split(':')
+    Time.new(yyyy.to_i, mm.to_i, dd.to_i, hh.to_i, mi.to_i, ss.to_r).round(0).strftime("%Y-%m-%d %H:%M:%S")
   end
 
   # internal cell model to help keep track of all of a cells
@@ -474,25 +505,6 @@ class Roo::Excelx < Roo::Base
       @base_data = options[:base_date]
     end
 
-    def value
-      case type
-      when :float
-        @value.to_f
-      when :string
-        @value
-      when :date
-        (@base_data+@value.to_i).strftime("%Y-%m-%d")
-      when :datetime
-        (@base_data+@value.to_f).strftime("%Y-%m-%d %H:%M:%S")
-      when :percentage
-        @value.to_f
-      when :time
-        @value.to_f*(24*60*60)
-      else
-        @value
-      end
-    end
-
     class Coordinate
       attr_accessor :x, :y
 
@@ -507,13 +519,18 @@ class Roo::Excelx < Roo::Base
   def read_cells(sheet=nil)
     sheet ||= @default_sheet
     validate_sheet!(sheet)
+    sheet_idx = sheet_index(sheet)
+
+    raise StandardError, "Documents not loaded, turn off minimal_load to use this method" unless @sheet_doc
+    raise StandardError, "Invalid sheet" unless @sheet_doc[sheet_idx]
+
     return if @cells_read[sheet]
-    return unless @sheet_doc[sheets.index(sheet)]
-    @sheet_doc[sheets.index(sheet)].xpath("/xmlns:worksheet/xmlns:sheetData/xmlns:row/xmlns:c").each do |c|
+    @sheet_doc[sheet_index(sheet)].xpath("/xmlns:worksheet/xmlns:sheetData/xmlns:row/xmlns:c").each do |c|
       cell = parse_cell(c, sheet: sheet)
       set_cell_values(cell.sheet, cell.coordinate.x, cell.coordinate.y, 0, cell.value, cell.type,
                       cell.formula, cell.excelx_type, cell.excelx_value, cell.s_attribute) unless cell == 0
     end
+
     @cells_read[sheet] = true
     # begin comments
 =begin
@@ -552,7 +569,7 @@ Datei xl/comments1.xml
   </comments>
 =end
 =begin
-    if @comments_doc[self.sheets.index(sheet)]
+    if @comments_doc[sheet_index(sheet)]
       read_comments(sheet)
     end
 =end
@@ -563,19 +580,14 @@ Datei xl/comments1.xml
   def cells_for_row_element(row_element, options = {})
     return [] unless row_element
     cell_col = 0
-    row_element.children.each_with_object(cells = []) do |cell_element|
+    row = Array.new(xml_row_width(row_element))
+    row_element.children.each do |cell_element|
       cell = parse_cell(cell_element, options)
-      cells.concat(pad_cells(cell, cell_col)) if options[:pad_cells]
-      cells << cell
       cell_col = cell.coordinate.x
+      row[cell_col - 1] = options[:cells] ? cell : cell.value
     end
-    cells
-  end
 
-  def pad_cells(cell, last_column)
-    pad = []
-    (cell.coordinate.x - 1 - last_column).times { pad << nil }
-    pad
+    row
   end
 
   # parse an individual cell xml element
@@ -635,31 +647,34 @@ Datei xl/comments1.xml
                 :date
               end
         end
-        excelx_type = [:numeric_or_formula,format.to_s]
+        excelx_type = [:numeric_or_formula, format.to_s]
         excelx_value = cell.content
-        v =
-            case value_type
+        v = case value_type
             when :shared
               value_type = :string
               excelx_type = :string
               @shared_table[cell.content.to_i]
             when :boolean
-              (cell.content.to_i == 1 ? 'TRUE' : 'FALSE')
+              (excelx_value.to_i == 1 ? 'TRUE' : 'FALSE')
             when :date
-              cell.content
+              yyyy, mm, dd = (base_date + excelx_value.to_i).strftime("%Y-%m-%d").split('-')
+              Date.new(yyyy.to_i, mm.to_i, dd.to_i)
             when :time
-              cell.content
+              excelx_value.to_f*(24*60*60)
             when :datetime
-              cell.content
+              create_datetime_from((base_date + excelx_value.to_f.round(6)).strftime("%Y-%m-%d %H:%M:%S.%N"))
             when :formula
-              cell.content.to_f #TODO: !!!!
+              excelx_value.to_f #TODO: !!!!
             when :string
               excelx_type = :string
-              cell.content
+              excelx_value
+            when :percentage
+              excelx_value.to_f
             else
-              val = Integer(cell.content) rescue Float(cell.content) rescue nil
-              value_type = val && val.is_a?(Float)  ? :float : :string
-              cell.content
+              val = excelx_value.to_f rescue excelx_value
+              val = val.to_i if (val.to_f % 1).zero? rescue val
+              value_type = val.is_a?(Numeric) ? :float : :string
+              val
             end
         return Cell.new(Cell::Coordinate.new(x, y), v,
                         excelx_value: excelx_value,
@@ -678,7 +693,7 @@ Datei xl/comments1.xml
   def read_comments(sheet=nil)
     sheet ||= @default_sheet
     validate_sheet!(sheet)
-    n = self.sheets.index(sheet)
+    n = sheet_index(sheet)
     return unless @comments_doc[n] #>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
     @comments_doc[n].xpath("//xmlns:comments/xmlns:commentList/xmlns:comment").each do |comment|
       ref = comment.attributes['ref'].to_s
