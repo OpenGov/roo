@@ -45,7 +45,7 @@ class Roo::CSV < Roo::Base
   end
 
   def each_row(options = {}, &block)
-    puts ####GOT TO PUBLIC METHOD
+    puts "GOT TO PUBLIC METHOD"
     return enum_for :each_row unless block_given?
     CSV.foreach(filename, options, &block)
   end
