@@ -44,6 +44,11 @@ class Roo::CSV < Roo::Base
     @options[:csv_options] || {}
   end
 
+  def each_row(options = {}, &block)
+    return enum_for :each_row unless block_given?
+    CSV.foreach(filename, options, &block)
+  end
+
   private
 
   TYPE_MAP = {
