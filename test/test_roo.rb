@@ -26,14 +26,15 @@ class TestRoo < Test::Unit::TestCase
   GOOGLE       = false 	# do Google-Spreadsheet Tests?
   EXCELX       = true  	# do Excelx Tests? (.xlsx files)
   LIBREOFFICE  = true  	# do LibreOffice tests? (.ods files)
-  CSV          = true  	# do CSV tests? (.csv files)
+  CSV          = false  	# do CSV tests? (.csv files)
 
   FORMATS = {
     excel: EXCEL,
     excelx: EXCELX,
     openoffice: OPENOFFICE,
     google: GOOGLE,
-    libreoffice: LIBREOFFICE
+    libreoffice: LIBREOFFICE,
+    csv: CSV
   }
 
   ONLINE = false
@@ -49,6 +50,8 @@ class TestRoo < Test::Unit::TestCase
       "#{name}.ods"
     when :google
       key_of(name)
+    when :csv
+      "#{name}.csv"
     end
   end
 
@@ -2283,6 +2286,10 @@ where the expected result is
     ]
 
     with_each_spreadsheet(:name=>'simple_spreadsheet', :format=>[:excel, :excelx]) do |oo|
+      assert_equal expected, oo.each_row(strip_nils: true).to_a
+    end
+
+    with_each_spreadsheet(:name=>'simple_spreadsheet', :format=>[:csv]) do |oo|
       assert_equal expected, oo.each_row(strip_nils: true).to_a
     end
 

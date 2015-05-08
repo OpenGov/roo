@@ -44,6 +44,17 @@ class Roo::CSV < Roo::Base
     @options[:csv_options] || {}
   end
 
+  def each_row(options = {}, &block)
+    local_file_path = filename
+    if uri?(filename)
+      make_tmpdir do |tmpdir|
+        local_file_path = download_uri(filename, tmpdir)
+      end
+    end
+
+    CSV.foreach(local_file_path, options, &block)
+  end
+
   private
 
   TYPE_MAP = {
@@ -55,17 +66,6 @@ class Roo::CSV < Roo::Base
 
   def celltype_class(value)
     TYPE_MAP[value.class]
-  end
-
-  def each_row(options, &block)
-    if uri?(filename)
-      make_tmpdir do |tmpdir|
-        filename = download_uri(filename, tmpdir)
-        CSV.foreach(filename, options, &block)
-      end
-    else
-      CSV.foreach(filename, options, &block)
-    end
   end
 
   def read_cells(sheet=nil)
