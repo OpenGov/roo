@@ -50,8 +50,8 @@ class TestRoo < Test::Unit::TestCase
       "#{name}.ods"
     when :google
       key_of(name)
-      when :csv
-        "#{name}.csv"
+    when :csv
+      "#{name}.csv"
     end
   end
 
