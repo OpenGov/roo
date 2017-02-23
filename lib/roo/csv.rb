@@ -52,7 +52,7 @@ class Roo::CSV < Roo::Base
       end
     end
 
-    CSV.foreach(local_file_path, options, &block)
+    CSV.foreach(local_file_path, csv_options, &block)
   end
 
   private
