@@ -11,6 +11,10 @@ Google spreadsheets. It can handle
 
 ## Notes
 
+### Testing
+The original authors of this gem took a do whatever you want approach with regards to testing. This gem has a jury-rigged combination of minitest and rspec. To execute the test suite you may use rspec. The minitest tests are threaded into rspec test battery. So although there are only 56 rspec tests, one of them has ~108 minitest tests in it.
+
+
 ### XLS
 
 There is no support for formulas in Roo for .xls files - you can get the result

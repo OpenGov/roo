@@ -9,6 +9,10 @@ describe Roo::Excelx do
     it 'creates an instance' do
       expect(subject).to be_a(Roo::Excelx)
     end
-  end
 
+    it 'correctly parses files that dont have a spans attribute on rows' do
+      parsed = Roo::Excelx.new('test/files/missing_spans.xlsx')
+      expect(parsed.row(1)).to eql(["Adulterated document"])
+    end
+  end
 end
