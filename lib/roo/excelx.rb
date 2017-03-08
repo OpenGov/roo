@@ -448,12 +448,6 @@ class Roo::Excelx < Roo::Base
     row['r'].to_i
   end
 
-  def xml_row_width(row)
-    first, last = row['spans'].split(':').map(&:to_i)
-
-    last - first + 1
-  end
-
   # helper function to set the internal representation of cells
   def set_cell_values(sheet,x,y,i,v,value_type,formula,
       excelx_type=nil,
@@ -580,7 +574,7 @@ Datei xl/comments1.xml
   def cells_for_row_element(row_element, options = {})
     return [] unless row_element
     cell_col = 0
-    row = Array.new(xml_row_width(row_element))
+    row = Array.new
     row_element.children.each do |cell_element|
       cell = parse_cell(cell_element, options)
       cell_col = cell.coordinate.x
